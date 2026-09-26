@@ -1,0 +1,421 @@
+{
+  "info": {
+    "name": "Mini Wallet Service",
+    "description": "Deposit → PSP callback → wager → withdrawal flow for the Backend Lead take-home. Run folders top to bottom (Collection Runner, or click through manually) - each request captures the ids/refs it needs into collection variables for the next one.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "memberId", "value": "" },
+    { "key": "walletId", "value": "" },
+    { "key": "pspRef", "value": "" },
+    { "key": "depositId", "value": "" },
+    { "key": "pspRef2", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Members",
+      "item": [
+        {
+          "name": "Create member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('has zero-balance wallet', () => pm.expect(body.wallet.balance).to.eql('0.000000000000000000'));",
+                  "pm.collectionVariables.set('memberId', body.member.id);",
+                  "pm.collectionVariables.set('walletId', body.wallet.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"postman_{{$randomInt}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/members", "host": ["{{baseUrl}}"], "path": ["members"] }
+          }
+        },
+        {
+          "name": "Get member's wallet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 200', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}/wallet",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}", "wallet"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Deposits",
+      "item": [
+        {
+          "name": "Create deposit (100.00, turnoverMultiplier 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('deposit is pending', () => pm.expect(body.status).to.eql('pending'));",
+                  "pm.test('has a pspRef', () => pm.expect(body.pspRef).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('pspRef', body.pspRef);",
+                  "pm.collectionVariables.set('depositId', body.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"amount\": \"100.00\",\n  \"turnoverMultiplier\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/deposits", "host": ["{{baseUrl}}"], "path": ["deposits"] }
+          }
+        },
+        {
+          "name": "Reject non-positive amount",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 400', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"amount\": \"0\",\n  \"turnoverMultiplier\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/deposits", "host": ["{{baseUrl}}"], "path": ["deposits"] }
+          }
+        },
+        {
+          "name": "Create second deposit (50.00, turnoverMultiplier 0 - headroom)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('pspRef2', pm.response.json().pspRef);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"amount\": \"50.00\",\n  \"turnoverMultiplier\": 0\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/deposits", "host": ["{{baseUrl}}"], "path": ["deposits"] },
+            "description": "Adds balance with no turnover requirement attached, so there's still money to withdraw once turnover is satisfied later (wagering the exact turnover requirement would otherwise drain the wallet to zero)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "PSP Callbacks",
+      "item": [
+        {
+          "name": "Confirm deposit (completed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('outcome is completed', () => pm.expect(pm.response.json().outcome).to.eql('completed'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pspRef\": \"{{pspRef}}\",\n  \"status\": \"completed\",\n  \"amount\": \"100.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/psp/callbacks",
+              "host": ["{{baseUrl}}"],
+              "path": ["psp", "callbacks"]
+            }
+          }
+        },
+        {
+          "name": "Replay same callback (idempotency)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('outcome is already_processed', () => pm.expect(pm.response.json().outcome).to.eql('already_processed'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pspRef\": \"{{pspRef}}\",\n  \"status\": \"completed\",\n  \"amount\": \"100.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/psp/callbacks",
+              "host": ["{{baseUrl}}"],
+              "path": ["psp", "callbacks"]
+            }
+          }
+        },
+        {
+          "name": "Conflicting transition (already completed, now failed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 409', () => pm.response.to.have.status(409));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pspRef\": \"{{pspRef}}\",\n  \"status\": \"failed\",\n  \"amount\": \"100.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/psp/callbacks",
+              "host": ["{{baseUrl}}"],
+              "path": ["psp", "callbacks"]
+            }
+          }
+        },
+        {
+          "name": "Unknown pspRef",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 404', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pspRef\": \"psp_does_not_exist\",\n  \"status\": \"completed\",\n  \"amount\": \"10.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/psp/callbacks",
+              "host": ["{{baseUrl}}"],
+              "path": ["psp", "callbacks"]
+            }
+          }
+        },
+        {
+          "name": "Confirm second deposit (headroom, completed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('outcome is completed', () => pm.expect(pm.response.json().outcome).to.eql('completed'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pspRef\": \"{{pspRef2}}\",\n  \"status\": \"completed\",\n  \"amount\": \"50.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/psp/callbacks",
+              "host": ["{{baseUrl}}"],
+              "path": ["psp", "callbacks"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Turnover Lock",
+      "item": [
+        {
+          "name": "Blocked withdrawal (turnover not met)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 422', () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test('explains the shortfall', () => pm.expect(body.error).to.eql('turnover_locked'));",
+                  "pm.test('required turnover is 100', () => pm.expect(body.requiredTurnover).to.eql('100.000000000000000000'));",
+                  "pm.test('nothing accrued yet', () => pm.expect(body.accruedTurnover).to.eql('0.000000000000000000'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"amount\": \"1.00\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/withdrawals", "host": ["{{baseUrl}}"], "path": ["withdrawals"] },
+            "description": "Balance is 150 (100 + 50 headroom) but required_turnover (100, from the first deposit) hasn't been accrued yet - run this before the Wagers folder."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wagers",
+      "item": [
+        {
+          "name": "Place a wager (satisfies turnover)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 201', () => pm.response.to.have.status(201));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": \"100.00\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{walletId}}/wagers",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallets", "{{walletId}}", "wagers"]
+            },
+            "description": "Wagers exactly the 100 required turnover. Balance goes from 150 to 50."
+          }
+        },
+        {
+          "name": "Reject wager that would overdraw",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 422', () => pm.response.to.have.status(422));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": \"999999.00\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{walletId}}/wagers",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallets", "{{walletId}}", "wagers"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Withdrawals",
+      "item": [
+        {
+          "name": "Withdraw (turnover now satisfied)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('withdrawal is pending', () => pm.expect(pm.response.json().status).to.eql('pending'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"amount\": \"30.00\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/withdrawals", "host": ["{{baseUrl}}"], "path": ["withdrawals"] },
+            "description": "Balance is 50 after wagering; withdraws 30, leaving 20. Turnover is satisfied (accrued 100 >= required 100)."
+          }
+        }
+      ]
+    }
+  ]
+}
